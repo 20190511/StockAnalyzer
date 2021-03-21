@@ -3,11 +3,13 @@ from PyQt5.QtWidgets import *
 from PyQt5.QAxContainer import *
 from PyQt5.QtCore import *
 from operator import *
+import numpy as np
 import time
 
 TR_REQ_TIME_INTERVAL = 0.2
 
 class Kiwoom (QAxWidget):
+    """ 키움 시작 함수 (Request -> Response) """
     def __init__(self):
         super().__init__()
         self._kiwoom_instance()
@@ -53,61 +55,42 @@ class Kiwoom (QAxWidget):
         except AttributeError:
             pass
 
-    #시장구분에 따른 종목 코드 반환 (리스트 반환)
-    def get_code_list_by_market (self, market):
-        code_list = self.dynamicCall("GetCodeListByMarket(QString)", market)
-        code_list = code_list.split(";")
-        return code_list[:-1]
-
-    #종목코드의 한글 이름 반환 (하나 반환)
-    def get_master_code_name (self, market_code):
-        code_name = self.dynamicCall("GetMasterCodeName(QString)", market_code)
-        return code_name
-
-    def get_master_listed_stock_date(self, market_code):
-        dateOfCompany = self.dynamicCall("GetMasterListedStockDate (QString)", market_code)
-        return dateOfCompany
-
-    # 주식 전체 차트 정렬 함수.
-    def _list_of_code(self):
-        code_list = self.get_code_list_by_market(0)
-        name_list = []
-
-        cnt = len(code_list)
-        for index_num in range(cnt):
-            total_list = []
-            company_name = self.get_master_code_name(code_list[index_num])
-            date_of_company = self.get_master_listed_stock_date(code_list[index_num])
-            # print(code_list[index_num], " : ", company_name)
-            # print("상장일 : ", date_of_company, "\n")
-            total_list.append(code_list[index_num])
-            total_list.append(company_name)
-            total_list.append(date_of_company)
-            name_list.append(total_list)
-        return name_list
-
-    # 상장일자로 정렬된 차트.
-    def sort_of_stock_listing_date(self):
-        name_dict = self._list_of_code()
-        sort_list = sorted(name_dict, key=itemgetter(2))
-        return sort_list
-
-
-
-
-
-
 
     """ Requestion + Response"""
     # Request에 보내는함수
     def set_input_value (self, id, value):
         self.dynamicCall("SetInputValue(QString, QString)", id, value)
 
-    # Requestion :앞의 SetInputValue()를 송신하는 함수
+    """
+        sRQName   – 사용자구분명 
+        sTrCode   - Tran명 입력 
+        nPrevNext - 0:조회, 2:연속 
+        sScreenNo - 4자리의 화면번호 : 기본값 0101
+            ex) CommRqData( “RQ_1”, “OPT00001”, 0, “0101”); 
+    """
+    # Requestion1 : 앞의 SetInputValue()를 송신하는 함수
     def comm_rq_data (self, rqname, trcode, next, screen_no):
         self.dynamicCall("CommRqData(QString, QString, int, QString)", rqname, trcode, next, screen_no)
         self.tr_event_loop = QEventLoop()
         self.tr_event_loop.exec_()
+
+
+    """
+        (str)  sArrCode   – 종목리스트 
+        (bool) bNext      – 연속조회요청 (bool 타입)
+        (int)  nCodeCount – 종목개수 
+        (int)  nTypeFlag  – 조회구분 (0:주식관심종목정보, 3:선물옵션관심종목정보)
+        (str)  sRQName    – 사용자구분명 
+        (str)  sScreenNo  – 화면번호[4] -> 0101
+            ex) CommKwRqData(“000660;005930”, 0, 2, 0, “RQ_1”, “0101”)
+    """
+    # Requestion2 : 복수개의 Tran을 요청하는 함수. (type_flag = 조회 구분, next = 연속조회 요청 유무) -> 사용 예정 없음.
+    def comm_kw_rq_data(self, code_arr, next, code_count, type_flag, rqname, screen_no):
+        check_val = self.dynamicCall("CommKwRqData(QString, bool, int, int, QString, QString)",
+                         code_arr, next, code_count, type_flag, rqname, screen_no)
+        self.tr_event_loop = QEventLoop()
+        self.tr_event_loop.exec_()
+        return check_val
 
     # Response :Data를 받아오는 함수
     def get_comm_data (self, Trancode, reqname, index, item_name):
@@ -123,60 +106,31 @@ class Kiwoom (QAxWidget):
 
     #일봉+주봉 차트 기준
     def _opt10081(self, rqname, trcode):
+        data_list = []
         data_cnt = self._get_repeat_cnt(trcode, rqname)   #데이터 개수 반환
-        print("DataCnt = ", data_cnt)
+        #print("DataCnt = ", data_cnt)
 
-        print("data = [일자, 시가, 고가, 저가, 현재가, 거래량]")
+        #print("data = [일자, 시가, 고가, 저가, 현재가, 거래량]")
         for index_num in range(data_cnt):
+            temp_list = []
             date = self.get_comm_data(trcode, rqname, index_num, "일자")
             open = self.get_comm_data(trcode, rqname, index_num, "시가")
             high = self.get_comm_data(trcode, rqname, index_num, "고가")
             low = self.get_comm_data(trcode, rqname, index_num, "저가")
             close = self.get_comm_data(trcode, rqname, index_num, "현재가")
             volume = self.get_comm_data(trcode, rqname, index_num, "거래량")
-            print(date, open, high, low, close, volume)
+            #print(date, open, high, low, close, volume)
+            temp_list.append(date)
+            temp_list.append(open)
+            temp_list.append(high)
+            temp_list.append(low)
+            temp_list.append(close)
+            temp_list.append(volume)
+            data_list.append(temp_list)
 
-    def login_and_input(self):
-            #기본값 설정
-        check = input("(일봉=1, 주봉=2)) : ")
-        check = check.strip()
-
-        market_code = input("종목 코드 (ex)039490)   :")
-        std_date = input("기준 일자 (ex)20210320) : ")
-        end_date = input("시작 날짜 (ex)20180320) : ")
-
-        if market_code == "":
-            market_code = "039490"
-        if std_date == "":
-            std_date = "20210320"
-        if end_date == "":
-            end_date = str(int(std_date)-20000)
-
-        name = self.get_master_code_name(market_code)
-        print("해당 종목코드의 회사 이름 : ",name)
-            #opt10081요청
-        self.set_input_value("종목코드", market_code)
-        self.set_input_value("기준일자", std_date)
-            #opt10082요청의 경우
-        if check == "2":
-            self.set_input_value("끝일자", end_date)
-        self.set_input_value("수정주가구분", 1)
-
-
-        if check == "1":
-            self.comm_rq_data("opt10081_req", "opt10081", 0, "0101")
-        elif check == "2":
-            self.comm_rq_data("opt10082_req", "opt10082", 0, "0101")
+        self.temp_list = data_list
 
 
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    kiwoom = Kiwoom()
-    kiwoom.comm_connect()
-    # kiwoom.login_and_input()
 
-    list = kiwoom.sort_of_stock_listing_date()
-    for temp in list:
-        print(temp)
 
